@@ -72,7 +72,12 @@ function print-repo-hash
         return $?
     fi
 
-    printf "%s\n" "xxxxxxx" && return 127
+    command -v git 1>/dev/null 2>/dev/null && {
+        GIT_HASH="$( git rev-parse HEAD 2>/dev/null )"
+    }
+    [ "${GIT_HASH}" == "" ] && GIT_HASH="xxxxxxx"
+
+    printf "%s\n" "${GIT_HASH:0:7}" && return 127
     return $?
 }
 
@@ -85,12 +90,13 @@ then
     BAPI_GIT_HASH="$( print-repo-hash )"
 fi
 BAPI_DOCKERFILE="${BAPI_DOCKERFILE:-Dockerfile}"
-BAPI_REMOTE_IMAGE="${BAPI_REMOTE_IMAGE:-docker.io/freeipa/freeipa-server:dev-${BAPI_GIT_HASH}}"
+BAPI_REMOTE_IMAGE="${BAPI_REMOTE_IMAGE:-quay.io/freeipa/freeipa-server:dev-${BAPI_GIT_HASH}}"
 BAPI_LOCAL_TAG="${BAPI_LOCAL_TAG:-localhost/freeipa/freeipa-server:dev-${BAPI_GIT_HASH}}"
 BAPI_TMP="$( mktemp /tmp/bapi-XXXXXX )"
-buildah --storage-driver vfs bud --isolation chroot -t "${BAPI_LOCAL_TAG}" -t "${BAPI_REMOTE_IMAGE}" -f "${BAPI_DOCKERFILE}" . | tee "${BAPI_TMP}" || exit 1
+buildah --storage-driver vfs bud --isolation chroot -t local/freeipa-server -t "${BAPI_LOCAL_TAG}" -t "${BAPI_REMOTE_IMAGE}" -f "${BAPI_DOCKERFILE}" . | tee "${BAPI_TMP}" || exit 1
 _RETURN=$?
 BAPI_IMAGE_ID="$( tail -n 1 "${BAPI_TMP}" )"
 echo "> Pushing image to '${BAPI_REMOTE_IMAGE}'"
-[ $_RETURN -eq 0 ] && buildah --storage-driver vfs push --creds "${BAPI_USERNAME}:${BAPI_PASSWORD}" "${BAPI_IMAGE_ID}" "docker://${BAPI_REMOTE_IMAGE}"
+[ $_RETURN -eq 0 ] && buildah --storage-driver vfs push --creds "${BAPI_USERNAME}:${BAPI_PASSWORD}" "${BAPI_IMAGE_ID}" "docker://${BAPI_REMOTE_IMAGE}" || exit $?
 rm -f "${BAPI_TMP}"
+exit 0
