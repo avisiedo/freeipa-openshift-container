@@ -7,7 +7,8 @@ RUN groupadd -g 289 ipaapi; useradd -u 289 -g 289 -c 'IPA Framework User' -r -d 
 # Workaround 1615948
 RUN ln -s /bin/false /usr/sbin/systemd-machine-id-setup
 RUN yum -y module enable idm:DL1
-RUN yum -y install patch sudo && yum -y module install --setopt=install_weak_deps=False idm:DL1/adtrust idm:DL1/dns && yum clean all
+RUN yum -y upgrade \
+    && yum -y install patch sudo && yum -y module install --setopt=install_weak_deps=False idm:DL1/adtrust idm:DL1/dns && yum clean all
 
 # debug: RUN test $( getent passwd | grep -E "^(dirsrv:x:389|ipaapi:x:289|kdcproxy:x:288|pkiuser:x:17):" | wc -l ) -eq 4
 
@@ -19,7 +20,7 @@ ENV container oci
 # Establish reasonably low open files limit in the container
 RUN echo "DefaultLimitNOFILE=1024" >> /etc/systemd/system.conf
 
-ENTRYPOINT [ "/usr/sbin/init" ]
+# ENTRYPOINT [ "/usr/sbin/init" ]
 STOPSIGNAL RTMIN+3
 # test-addon: VOLUME [ "/var/log/journal" ]
 # test: systemd-container-failed.sh kdump.service var-lib-nfs-rpc_pipefs.mount
@@ -76,7 +77,7 @@ RUN echo 2.0 > /etc/volume-version
 VOLUME [ "/tmp", "/run", "/data", "/var/log/journal" ]
 
 COPY init-data-minimal /usr/local/sbin/init
-ENTRYPOINT [ "/usr/local/sbin/init" ]
+# ENTRYPOINT [ "/usr/local/sbin/init" ]
 # test: systemd-container-ipa-server-install-data.sh docker-diff-minimal-fedora-23.out
 
 # Configure master/replica upon the first invocation
@@ -96,6 +97,13 @@ RUN uuidgen > /data-template/build-id
 # Atomic specific bits
 COPY install.sh uninstall.sh /bin/
 COPY atomic-install-help /usr/share/ipa/
+
+# Workaround for running systemd mode from podman
+RUN mkdir /usr/sbin/original \
+    && mv /usr/sbin/init /usr/sbin/original/init
+COPY init-wrapper.sh /usr/sbin/init
+
+CMD ["/usr/sbin/init"]
 
 # For atomic, we run INSTALL --privileged but install.sh will start another unprivileged container.
 # We do it this way to be able to set hostname for the unprivileged container.

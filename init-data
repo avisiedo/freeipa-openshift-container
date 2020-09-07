@@ -22,6 +22,8 @@ set -e
 # Turn on tracing of this script
 test -z "$DEBUG_TRACE" || set -x
 
+echo "INIT_WRAPPER=$INIT_WRAPPER"
+
 cd /
 
 case "$1" in
@@ -113,7 +115,7 @@ OPTIONS_FILE=/run/ipa/$COMMAND-options
 
 DATA_OPTIONS_FILE=$DATA/$COMMAND-options
 touch $OPTIONS_FILE
-chmod 600 $OPTIONS_FILE
+chmod 660 $OPTIONS_FILE
 for i in "$@" ; do
 	printf '%q\n' "$i" >> $OPTIONS_FILE
 done
