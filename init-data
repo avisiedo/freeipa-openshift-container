@@ -268,6 +268,8 @@ if [ -n "$IPA_SERVER_IP" ] ; then
 	echo "$IPA_SERVER_IP" > /run/ipa/ipa-server-ip
 fi
 
-exec /usr/sbin/init --show-status=false $SYSTEMD_OPTS
+exec /usr/lib/systemd/systemd --no-pager --show-status=true --log-level=debug --log-color=no \
+                              --log-target=console --default-standard-output=journal+console \
+							  --default-standard-error=journal+console $SYSTEMD_OPTS
 
 exit 10
