@@ -104,6 +104,13 @@ RUN mkdir /usr/sbin/original \
     && rm /usr/sbin/init
 COPY init-wrapper.sh /usr/sbin/init
 
+
+# Workaround for creating a soft-link for /etc/machine-id
+# /data/etc/machine-id will be lost when we mount the volume, but the install process will regenerate the mahcine-id
+RUN mkdir -p /data/etc \
+    && touch /data/etc/machine-id
+
+
 CMD ["/usr/sbin/init"]
 
 # For atomic, we run INSTALL --privileged but install.sh will start another unprivileged container.

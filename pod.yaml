@@ -12,6 +12,13 @@
 # See the init container log by:
 # # oc logs -f freeipa-master -c freeipa-master-init
 
+# Launching in local and analyzing the layer by:
+#   podman kill freeipa-master; podman rm freeipa-master; podman volume rm freeipa-data; container_id="$( podman run -d -e INIT_WRAPPER=1 --name freeipa-master --hostname ipa.example.test --sysctl net.ipv6.conf.all.disable_ipv6=0 --tmpfs /run --tmpfs /tmp -v /dev/urandom:/dev/random:ro -v freeipa-data:/data:z -e IPA_SERVER_HOSTNAME=ipa.example.test -e PASSWORD=Secret123 -e DEBUG_TRACE=1 -e SYSTEMD_LOG_LEVEL=debug -e SYSTEMD_LOG_TARGET=journal+console quay.io/avisied0/freeipa-openshift-container:dev-test /usr/sbin/init exit-on-finished -U --setup-dns --no-forwarders --auto-reverse --allow-zone-overlap --no-ntp --verbose )"
+#   podman logs -f $container_id
+#   podman commit $container_id quay.io/avisied0/freeipa-openshift-container:dev-test-2
+#   dive 093c86ab8326 --source podman --json dive.json
+#   grep -A3 -B1 \"count\":\ 3 dive.json
+
 # Pipeline job used as reference: https://travis-ci.org/github/avisiedo/freeipa-openshift-container/jobs/721264298
 ---
 kind: Secret
@@ -194,7 +201,13 @@ spec:
         - name: DEBUG_TRACE
           value: "1"
         - name: IPA_SERVER_HOSTNAME
-          value: "freeipa-master"
+          value: "freeipa-master.apps.permanent.idmocp.idm.lab.bos.redhat.com"
+        - name: SYSTEMD_LOG_LEVEL
+          value: "debug"
+        - name: SYSTEMD_LOG_TARGET
+          value: "journal+console"
+        - name: SYSTEMD_LOG_COLOR
+          value: "no"
       #   - name: IPA_SERVER_HOSTNAME
       #     value: "freeipa-master"
       #   # Review this one
