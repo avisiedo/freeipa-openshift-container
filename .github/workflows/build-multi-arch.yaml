@@ -1,0 +1,229 @@
+name: Build Multi-arch container images
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 4 * * 1,3,5'
+
+env:
+  TRAVIS: yes-similar-ubuntu-environment
+jobs:
+  prepare:
+    name: Prepare variables
+    runs-on: ubuntu-20.04
+    outputs:
+      default_branch: ${{ steps.generate_output.outputs.default_branch }}
+      current_branch: ${{ steps.generate_output.outputs.current_branch }}
+      current_tag: ${{ steps.generate_output.outputs.current_tag }}
+    steps:
+      - name: Generate output variables
+        id: generate_output
+        run: |
+          default_branch="$( curl --silent https://api.github.com/users/${{ github.repository_owner }}/repos | jq -M -r '.[] | select( .name == "'$( repo_name="${{ github.repository }}"; echo "${repo_name##*/}")'") | .default_branch' )"
+          current_ref="${{ github.ref }}"
+
+          echo "debug::current_ref=${current_ref}"
+
+          case "${current_ref}" in
+            refs/heads/* )
+              # branch
+              current_branch="${current_ref#refs/heads/}"
+              current_tag=""
+              ;;
+            refs/tags/* )
+              # tag
+              current_branch=""
+              current_tag="${current_ref#refs/tags/}"
+              ;;
+            * )
+              current_branch=""
+              current_tag=""
+              ;;
+          esac
+
+          echo "::set-output name=default_branch::${default_branch}"
+          echo "::set-output name=current_branch::${current_branch}"
+          echo "::set-output name=current_tag::${current_tag}"
+
+  build-x86_64:
+    name: Build image x86_64
+    runs-on: ubuntu-20.04
+    needs: [ prepare ]
+    if: needs.prepare.outputs.default_branch == needs.prepare.outputs.current_branch
+    env:
+      ARCH: x86_64
+    strategy:
+      fail-fast: false
+      matrix:
+        # os: [ fedora-rawhide, fedora-33, fedora-32, centos-8, centos-7 ]
+        os: [ fedora-33 ]
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Printout job variables
+        run: |
+          echo "${{ needs.prepare.outputs.default_branch }}"
+          echo "${{ needs.prepare.outputs.current_branch }}"
+          echo "${{ needs.prepare.outputs.current_tag }}"
+      - name: Build image
+        run: docker build -t local/freeipa-server:${{ matrix.os }}-${ARCH} -f Dockerfile.${{ matrix.os }} .
+      - name: File issue if building image failed
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        run: |
+          curl -s 'https://api.github.com/repos/${{ github.repository }}/issues?labels=image-build-fail' | jq -r '.[0].state' | grep open \
+          || curl -s -X POST \
+            --url https://api.github.com/repos/${{ github.repository }}/issues \
+            -H 'Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+            -H 'Accept: application/vnd.github.v3+json' \
+            -d '{
+              "title": "Image build for ${{ matrix.os }} failed on '$( date -I )'",
+              "body": "This issue was automatically created by GitHub Action\n\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}.\n",
+              "labels": ["image-build-fail" ]
+              }'
+      - name: Create directory for artifacts
+        run: mkdir freeipa-server-${{ matrix.os }}-${ARCH}
+      - name: Save image
+        run: docker save local/freeipa-server:${{ matrix.os }}-${ARCH} | gzip > freeipa-server-${{ matrix.os }}-${ARCH}/freeipa-server-${{ matrix.os }}-${ARCH}.tar.gz
+      - name: Get FreeIPA version
+        run: docker run --rm --entrypoint rpm local/freeipa-server:${{ matrix.os }}-${ARCH} -qf --qf '%{version}\n' /usr/sbin/ipa-server-install > freeipa-server-${{ matrix.os }}-${ARCH}/freeipa-server-${{ matrix.os }}-${ARCH}.version
+      - uses: actions/upload-artifact@v2
+        with:
+          name: freeipa-server-${{ matrix.os }}-${{ env.ARCH }}
+          path: freeipa-server-${{ matrix.os }}-${{ env.ARCH }}
+
+  build-arm32:
+    name: Build image arm32
+    runs-on: "debian-10-arm32"
+    if: ${{ false }}  # FIXME Enable again when arm32 is working
+    needs: [ prepare ]
+    # if: needs.prepare.outputs.default_branch == needs.prepare.outputs.current_branch
+    env:
+      ARCH: arm32
+    strategy:
+      fail-fast: false
+      matrix:
+        # os: [ fedora-rawhide, fedora-33, fedora-32, centos-8 ]
+        os: [ fedora-33 ]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build image
+        run: docker build -t local/freeipa-server:${{ matrix.os }}-${ARCH} -f Dockerfile.${{ matrix.os }} .
+      - name: File issue if building image failed
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        run: |
+          curl -s 'https://api.github.com/repos/${{ github.repository }}/issues?labels=image-build-fail' | jq -r '.[0].state' | grep open \
+          || curl -s -X POST \
+            --url https://api.github.com/repos/${{ github.repository }}/issues \
+            -H 'Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+            -H 'Accept: application/vnd.github.v3+json' \
+            -d '{
+              "title": "Image build for ${{ matrix.os }} failed on '$( date -I )'",
+              "body": "This issue was automatically created by GitHub Action\n\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}.\n",
+              "labels": ["image-build-fail" ]
+              }'
+      - name: Create directory for artifacts
+        run: mkdir freeipa-server-${{ matrix.os }}-${ARCH}
+      - name: Save image
+        run: docker save local/freeipa-server:${{ matrix.os }}-${ARCH} | gzip > freeipa-server-${{ matrix.os }}-${ARCH}/freeipa-server-${{ matrix.os }}-${ARCH}.tar.gz
+      - name: Get FreeIPA version
+        run: docker run --rm --entrypoint rpm local/freeipa-server:${{ matrix.os }}-${ARCH} -qf --qf '%{version}\n' /usr/sbin/ipa-server-install > freeipa-server-${{ matrix.os }}-${ARCH}/freeipa-server-${{ matrix.os }}-${ARCH}.version
+      - uses: actions/upload-artifact@v2
+        with:
+          name: freeipa-server-${{ matrix.os }}-${{ env.ARCH }}
+          path: freeipa-server-${{ matrix.os }}-${{ env.ARCH }}
+
+  build-arm64:
+    name: Build image arm64
+    runs-on: "ubuntu-20.04-arm64"
+    needs: [ prepare ]
+    if: needs.prepare.outputs.default_branch == needs.prepare.outputs.current_branch
+    env:
+      ARCH: arm64
+    strategy:
+      fail-fast: false
+      matrix:
+        # os: [ fedora-rawhide, fedora-33, fedora-32, centos-8 ]
+        os: [ fedora-33 ]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build image
+        run: docker build -t local/freeipa-server:${{ matrix.os }}-${ARCH} -f Dockerfile.${{ matrix.os }} .
+      - name: File issue if building image failed
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        run: |
+          curl -s 'https://api.github.com/repos/${{ github.repository }}/issues?labels=image-build-fail' | jq -r '.[0].state' | grep open \
+          || curl -s -X POST \
+            --url https://api.github.com/repos/${{ github.repository }}/issues \
+            -H 'Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+            -H 'Accept: application/vnd.github.v3+json' \
+            -d '{
+              "title": "Image build for ${{ matrix.os }} failed on '$( date -I )'",
+              "body": "This issue was automatically created by GitHub Action\n\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}.\n",
+              "labels": ["image-build-fail" ]
+              }'
+      - name: Create directory for artifacts
+        run: mkdir freeipa-server-${{ matrix.os }}-${ARCH}
+      - name: Save image
+        run: docker save local/freeipa-server:${{ matrix.os }}-${ARCH} | gzip > freeipa-server-${{ matrix.os }}-${ARCH}/freeipa-server-${{ matrix.os }}-${ARCH}.tar.gz
+      - name: Get FreeIPA version
+        run: docker run --rm --entrypoint rpm local/freeipa-server:${{ matrix.os }}-${ARCH} -qf --qf '%{version}\n' /usr/sbin/ipa-server-install > freeipa-server-${{ matrix.os }}-${ARCH}/freeipa-server-${{ matrix.os }}-${ARCH}.version
+      - uses: actions/upload-artifact@v2
+        with:
+          name: freeipa-server-${{ matrix.os }}-${{ env.ARCH }}
+          path: freeipa-server-${{ matrix.os }}-${{ env.ARCH }}
+
+  push-images:
+    name: Push images
+    runs-on: "ubuntu-20.04"
+    # needs: [ build-x86_64, build-arm32, build-arm64 ]
+    needs: [ prepare, build-x86_64, build-arm64 ]
+    if: needs.prepare.outputs.default_branch == needs.prepare.outputs.current_branch
+    strategy:
+      fail-fast: false
+      matrix:
+        # os: [ fedora-rawhide, fedora-33, fedora-32, centos-8 ]
+        os: [ fedora-33 ]
+    env:
+      DOCKER_CONFIG: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/download-artifact@v2
+        with:
+          name: freeipa-server-${{ matrix.os }}-x86_64
+      - uses: actions/download-artifact@v2
+        with:
+          name: freeipa-server-${{ matrix.os }}-arm64
+      - name: Prepare authentication file
+        run: |
+          cat > config.json << 'EOF'
+          ${{ secrets.REGISTRY_CREDENTIALS_FILE }}
+          EOF
+      - name: Push images for each os and architecture and create multi-arch manifest
+        run: |
+          # For each registry at REGISTRY_TARGET_LIST
+          while read r ; do
+            # For each image file, push to the registries
+            MANIFESTS=()
+            for f in freeipa-server-*.tar.gz
+            do
+              j=${f%.tar.gz}
+              arch="${j##*-}"
+              echo Copying $j to ${r#docker://}
+              freeipa_version="$( cat $j.version )"
+              image_tag="${{ matrix.os }}-${freeipa_version}-${arch}"
+              skopeo copy --authfile=config.json docker-archive:$f $r:${image_tag}
+              echo Tagged as ${r#docker://}:${image_tag}
+              # Add manifest to the array
+              MANIFESTS+=("--amend ${r#docker://}:${image_tag}")
+            done
+
+            # Create multi-arch manifest and push it to the registry
+            image_tag="${{ matrix.os }}-${freeipa_version}"
+            # export DOCKER_CONFIG="${PWD}"
+            docker manifest create ${r#docker://}:${image_tag} ${MANIFESTS[*]}
+            docker manifest push ${r#docker://}:${image_tag}
+          done << 'EOF'
+          ${{ secrets.REGISTRY_TARGET_LIST }}
+          EOF
